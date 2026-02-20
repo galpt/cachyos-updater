@@ -33,8 +33,8 @@ Usage: $PROG_NAME [options]
 
 Options:
   --auto        Run non-interactively (assume yes)
-  --dry-run     Show what would be executed (no changes)
   --no-reboot   Never reboot even if required
+  --no-volatile-log  Force persistent logs (write to /var/log or $HOME/.cache)
   --help        Show this help
 
 Examples:
@@ -42,6 +42,9 @@ Examples:
   sudo $PROG_NAME --auto     # automatic, non-interactive
   $PROG_NAME --dry-run       # show commands only (no root required)
 
+By default this script writes logs to volatile storage (prefer `/dev/shm`, then `/tmp`) so
+logs are cleared on reboot. To force persistent logging set `--no-volatile-log` or
+`VOLATILE_LOG=0` in the environment.
 USAGE
   exit 0
 }
@@ -58,11 +61,14 @@ check_root_or_sudo() {
 AUTO=0
 DRY_RUN=0
 NO_REBOOT=0
+# Make volatile logging the default (use tmpfs like /dev/shm or /tmp)
+VOLATILE_LOG=1
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --auto) AUTO=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --no-reboot) NO_REBOOT=1; shift ;;
+    --no-volatile-log) VOLATILE_LOG=0; shift ;;
     --help|-h) usage ;;
     *) echo "Unknown option: $1"; usage ;;
   esac
@@ -72,15 +78,37 @@ main() {
   check_root_or_sudo
   print_header
 
-  # Logging
-  if [ "$EUID" -eq 0 ]; then
-    LOGDIR=/var/log
+  # Logging: choose persistent or volatile location
+  # If user requested volatile logs, prefer /dev/shm then /tmp. Otherwise
+  # use /var/log when root, or $HOME/.cache when non-root.
+  if [ "$VOLATILE_LOG" -eq 1 ] || [ "${VOLATILE_LOG-}" = "1" ]; then
+    if [ -d /dev/shm ] && [ -w /dev/shm ]; then
+      LOGDIR=/dev/shm
+    else
+      LOGDIR=/tmp
+    fi
+    mkdir -p "$LOGDIR"
+    LOGFILE="$LOGDIR/cachyos-update.log"
+    _yellow "Using volatile log location: $LOGFILE (cleared on reboot if backed by tmpfs)"
   else
-    LOGDIR="$HOME/.cache"
+    # detect if /var/log is tmpfs (volatile)
+    VARLOG_TMPFS=0
+    if grep -q 'tmpfs /var/log ' /proc/mounts 2>/dev/null; then
+      VARLOG_TMPFS=1
+    fi
+
+    if [ "$EUID" -eq 0 ]; then
+      LOGDIR=/var/log
+    else
+      LOGDIR="$HOME/.cache"
+    fi
+    mkdir -p "$LOGDIR"
+    LOGFILE="$LOGDIR/cachyos-update.log"
+    if [ "$LOGDIR" = "/var/log" ] && [ "$VARLOG_TMPFS" -eq 1 ]; then
+      _yellow "/var/log is mounted as tmpfs; logs placed there will be cleared on reboot"
+    fi
+    _yellow "Log: $LOGFILE"
   fi
-  mkdir -p "$LOGDIR"
-  LOGFILE="$LOGDIR/cachyos-update.log"
-  _yellow "Log: $LOGFILE"
 
   # Detect CachyOS and available tools
   CACHY=0

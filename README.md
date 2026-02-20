@@ -67,6 +67,10 @@ Options:
 - `--auto` — assume yes to prompts and reboot automatically if required.
 - `--dry-run` — show the commands that would be executed (no root required).
 - `--no-reboot` — never reboot even if updates require it.
+- `--no-volatile-log` — force persistent logging to `/var/log` (when root) or `$HOME/.cache`.
+
+Note: By default the updater writes logs to volatile storage (prefers `/dev/shm`, then `/tmp`) so
+logs are automatically cleared on reboot. Use `--no-volatile-log` to opt out and keep logs persistent.
 
 ## Examples
 - Interactive update (will prompt before running):
